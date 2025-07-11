@@ -23,12 +23,25 @@ import org.osmdroid.views.overlay.Marker
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
+    private val LOCATION_PERMISSION_REQUEST_CODE = 1
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Standortberechtigung anfordern (nur falls nötig)
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
+        checkLocationPermission()
+
+        setContent {
+            MaterialTheme {
+                OsmMapScreen()
+            }
+        }
+    }
+
+    private fun checkLocationPermission() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
                 this,
@@ -36,13 +49,21 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 ),
-                1
+                LOCATION_PERMISSION_REQUEST_CODE
             )
         }
+    }
 
-        setContent {
-            MaterialTheme {
-                OsmMapScreen()
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permission granted, recreate the activity to start location updates
+                recreate()
             }
         }
     }
@@ -52,23 +73,9 @@ class MainActivity : ComponentActivity() {
 fun OsmMapScreen() {
     val context = LocalContext.current
     var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var mapView by remember { mutableStateOf<MapView?>(null) }
 
-    // Aktuellen Standort holen
-    LaunchedEffect(Unit) {
-        val fused = LocationServices.getFusedLocationProviderClient(context)
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            val location = fused.getCurrentLocation(
-                com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
-                null
-            ).await()
-            location?.let {
-                currentLocation = GeoPoint(it.latitude, it.longitude)
-            }
-        }
-    }
-
+    // Create and configure MapView
     AndroidView(
         factory = { ctx ->
             Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx))
@@ -78,20 +85,48 @@ fun OsmMapScreen() {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(16.0)
+                mapView = this // Store reference to MapView
+            }
+        },
+        update = { view ->
+            // Update map when location changes
+            currentLocation?.let { location ->
+                view.overlays.clear() // Clear existing overlays
+                view.controller.setCenter(location)
 
-                currentLocation?.let {
-                    controller.setCenter(it)
-
-                    val marker = Marker(this)
-                    marker.position = it
-                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    marker.title = "Dein Standort"
-                    overlays.add(marker)
+                val marker = Marker(view).apply {
+                    position = location
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "Your Location"
                 }
+                view.overlays.add(marker)
+                view.invalidate() // Refresh the map
             }
         },
         modifier = Modifier.fillMaxSize()
     )
+
+    // Get current location
+    LaunchedEffect(Unit) {
+        val fused = LocationServices.getFusedLocationProviderClient(context)
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            try {
+                val location = fused.getCurrentLocation(
+                    com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
+                    null
+                ).await()
+
+                location?.let {
+                    currentLocation = GeoPoint(it.latitude, it.longitude)
+                }
+            } catch (e: Exception) {
+                // Handle location error
+                e.printStackTrace()
+            }
+        }
+    }
 }
 
 suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T? =
