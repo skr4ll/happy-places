@@ -463,17 +463,19 @@ private fun EntryItem(
                 horizontalArrangement = Arrangement.End
             ) {
                 Button(
-                    onClick = { showEditDialog = true },
-                    modifier = Modifier.padding(end = 8.dp)
+                    onClick = { showEditDialog = true }
                 ) {
-                    Text("Bearbeiten")
+                    Text("Bearb.")
                 }
-                
+            }
+            Row(
+                    modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {   
                 Button(
                     onClick = onDelete,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
                 ) {
                     Text("Löschen")
                 }
@@ -484,13 +486,13 @@ private fun EntryItem(
     if (showEditDialog) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showEditDialog = false },
-            title = { Text("Edit Note") },
+            title = { Text("Notiz bearbeiten") },
             text = {
                 TextField(
                     value = editedNote,
                     onValueChange = { editedNote = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Note") }
+                    label = { Text("Notiz") }
                 )
             },
             confirmButton = {
@@ -500,14 +502,14 @@ private fun EntryItem(
                         showEditDialog = false
                     }
                 ) {
-                    Text("Save")
+                    Text("Speichern")
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showEditDialog = false }
                 ) {
-                    Text("Cancel")
+                    Text("Abbrechen")
                 }
             }
         )
