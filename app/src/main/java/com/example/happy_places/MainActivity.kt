@@ -366,7 +366,6 @@ fun OsmMapScreen() {
         }
     }
 
-    // Get current location
     LaunchedEffect(Unit) {
         val fused = LocationServices.getFusedLocationProviderClient(context)
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -425,7 +424,6 @@ private fun EntryItem(
             .clickable(onClick = onClick),
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Show thumbnail
             Image(
                 bitmap = android.graphics.BitmapFactory.decodeFile(entry.imagePath)
                     .asImageBitmap(),
