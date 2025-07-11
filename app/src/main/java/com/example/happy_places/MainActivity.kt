@@ -1,18 +1,26 @@
 package com.example.happy_places
 
 import android.Manifest
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.preference.PreferenceManager
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
+import androidx.core.app.ActivityCompat.startActivityForResult
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.osmdroid.config.Configuration
@@ -24,6 +32,8 @@ import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
     private val LOCATION_PERMISSION_REQUEST_CODE = 1
+    private val CAMERA_PERMISSION_REQUEST_CODE = 2
+    private val IMAGE_PICKER_REQUEST_CODE = 3
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,16 +64,68 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkCameraPermission() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                CAMERA_PERMISSION_REQUEST_CODE
+            )
+        } else {
+            startImagePicker()
+        }
+    }
+
+    private fun startImagePicker() {
+        val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        val galleryIntent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        val chooser = Intent.createChooser(galleryIntent, "Select or take a picture")
+        chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+        startActivityForResult(chooser, IMAGE_PICKER_REQUEST_CODE)
+    }
+
+    fun openImagePicker() {
+        checkCameraPermission()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, recreate the activity to start location updates
-                recreate()
+        when (requestCode) {
+            LOCATION_PERMISSION_REQUEST_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    recreate()
+                }
+            }
+            CAMERA_PERMISSION_REQUEST_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startImagePicker()
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == IMAGE_PICKER_REQUEST_CODE && resultCode == RESULT_OK) {
+            when {
+                data?.data != null -> {
+                    // Handle gallery image
+                    val imageUri = data.data
+                    // Handle the gallery image URI here
+                }
+                data?.extras?.get("data") != null -> {
+                    // Handle camera image
+                    val thumbnail = data.extras?.get("data") as Bitmap
+                    // Handle the camera thumbnail here
+                }
             }
         }
     }
@@ -97,7 +159,7 @@ fun OsmMapScreen() {
                 val marker = Marker(view).apply {
                     position = location
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = "Your Location"
+                    title = "Du bist hier!"
                 }
                 view.overlays.add(marker)
                 view.invalidate() // Refresh the map
@@ -127,7 +189,23 @@ fun OsmMapScreen() {
             }
         }
     }
+    Button(onClick = { saveLocation(currentLocation, context) }) {
+        Text("Ort speichern")
+    }
 }
+
+fun saveLocation(cl: GeoPoint?, activity: Context?) {
+    if (activity is MainActivity) {
+        AlertDialog.Builder(activity)
+            .setTitle("Add picture?")
+            .setPositiveButton("Yes") { _, _ -> activity.openImagePicker() }
+            .setNegativeButton("No", null)
+            .show()
+    }
+}
+
+// Open the device camera or the image picker from gallery
+
 
 suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T? =
     suspendCancellableCoroutine { cont ->
