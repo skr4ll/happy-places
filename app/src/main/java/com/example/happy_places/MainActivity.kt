@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.provider.MediaStore
+import android.view.MotionEvent
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,9 +20,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,15 +63,12 @@ class MainActivity : ComponentActivity() {
     private val CAMERA_PERMISSION_REQUEST_CODE = 2
     private val IMAGE_PICKER_REQUEST_CODE = 3
 
-    // Add this property to store the selected image
     private var selectedImage: Bitmap? = null
     var currentLocation: GeoPoint? = null
     
-    // Add this to store all entries
     private val _entries = mutableStateListOf<LocationEntry>()
     val entries: List<LocationEntry> = _entries
 
-    // Add this property to store the pending note
     var pendingNote: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,31 +153,21 @@ class MainActivity : ComponentActivity() {
         if (requestCode == IMAGE_PICKER_REQUEST_CODE && resultCode == RESULT_OK) {
             try {
                 when {
-                    // Handle gallery image
                     data?.data != null -> {
                         val imageUri = data.data
-                        selectedImage = MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
-                        // Now you can use selectedImage as needed
-                        // For example, save it or display it
+                        selectedImage = MediaStore.Images.Media.getBitmap(contentResolver, imageUri)                        
                     }
-                    // Handle camera image
                     data?.extras?.get("data") != null -> {
-                        selectedImage = data.extras?.get("data") as Bitmap
-                        // Now you can use selectedImage as needed
-                        // For example, save it or display it
+                        selectedImage = data.extras?.get("data") as Bitmap                       
                     }
                 }
 
-                // Example of what you could do with the image:
                 if (selectedImage != null) {
-                    // Save to internal storage
                     saveImageToInternalStorage(selectedImage!!)
-                    // Or pass it to a function to upload/process it
                     handleCapturedImage(selectedImage!!)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                // Show error message to user
                 AlertDialog.Builder(this)
                     .setTitle("Error")
                     .setMessage("Failed to process image")
@@ -212,8 +203,19 @@ class MainActivity : ComponentActivity() {
                 note = pendingNote
             )
             _entries.add(entry)
-            pendingNote = "" // Reset pending note
+            pendingNote = ""
         }
+    }
+
+    fun updateEntryNote(newNote: String, entry: LocationEntry) {
+        val index = _entries.indexOfFirst { it.id == entry.id }
+        if (index != -1) {
+            _entries[index] = entry.copy(note = newNote)
+        }
+    }
+    
+    fun deleteEntry(entry: LocationEntry) {
+        _entries.removeAll { it.id == entry.id }
     }
 }
 
@@ -224,9 +226,9 @@ fun OsmMapScreen() {
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var showList by remember { mutableStateOf(false) }
     val mainActivity = context as MainActivity
-    
+    var selectedLocation by remember { mutableStateOf<GeoPoint?>(null) }
+
     Row(modifier = Modifier.fillMaxSize()) {
-        // Map section (left side, now can be full width)
         Box(
             modifier = Modifier
                 .weight(if (showList) 0.7f else 1f)
@@ -242,23 +244,51 @@ fun OsmMapScreen() {
                         setMultiTouchControls(true)
                         controller.setZoom(16.0)
                         mapView = this
+
+                        overlays.add(object : org.osmdroid.views.overlay.Overlay() {
+
+                            override fun onLongPress(e: MotionEvent, mapView: MapView): Boolean {
+                                val proj = mapView.projection
+                                val geoPoint = proj.fromPixels(e.x.toInt(), e.y.toInt())
+                                selectedLocation = geoPoint as GeoPoint
+  
+                                mapView.overlays.removeAll { it is Marker && it.title == "Selected Location" }
+
+                                val marker = Marker(mapView).apply {
+                                    position = geoPoint
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    title = "Selected Location"
+                                    icon = context.getDrawable(android.R.drawable.ic_menu_add)
+                                }
+                                mapView.overlays.add(marker)
+                                mapView.invalidate()
+                                return true
+                            }
+                        })
                     }
                 },
                 update = { view ->
                     view.overlays.clear()
-                    
-                    // Add current location marker
                     currentLocation?.let { location ->
                         val marker = Marker(view).apply {
                             position = location
                             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            title = "You are here!"
+                            title = "Du bist hier!"
                             setIcon(context.getDrawable(android.R.drawable.ic_menu_mylocation))
                         }
                         view.overlays.add(marker)
                     }
-                    
-                    // Add markers for all entries
+
+                    selectedLocation?.let { location ->
+                        val marker = Marker(view).apply {
+                            position = location
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            title = "Selected Location"
+                            icon = context.getDrawable(android.R.drawable.ic_menu_add)
+                        }
+                        view.overlays.add(marker)
+                    }
+
                     mainActivity.entries.forEach { entry ->
                         val marker = Marker(view).apply {
                             position = entry.location
@@ -268,11 +298,11 @@ fun OsmMapScreen() {
                                 "dd.MM.yyyy HH:mm",
                                 java.util.Locale.getDefault()
                             ).format(java.util.Date(entry.timestamp))
+                            icon = context.getDrawable(android.R.drawable.ic_menu_save)
                         }
                         view.overlays.add(marker)
                     }
-                    
-                    currentLocation?.let { view.controller.setCenter(it) }
+
                     view.invalidate()
                 },
                 modifier = Modifier.fillMaxSize()
@@ -287,18 +317,32 @@ fun OsmMapScreen() {
                     onClick = { showList = !showList },
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    Text(if (showList) "Hide List" else "Show List")
+                    Text(if (showList) "List ausbl." else "Liste zeigen")
                 }
-                
-                Button(
-                    onClick = { saveLocation(currentLocation, context) }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save Location")
+                    Button(
+                        onClick = { saveLocation(currentLocation, context, "current") }
+                    ) {
+                        Text("Aktuellen speichern")
+                    }
+
+                    Button(
+                        onClick = {
+                            if (selectedLocation != null) {
+                                saveLocation(selectedLocation, context, "selected")
+                            }
+                        },
+                        enabled = selectedLocation != null
+                    ) {
+                        Text("Markierten speichern")
+                    }
                 }
             }
         }
 
-        // List section (right side, only shown when showList is true)
         if (showList) {
             Box(
                 modifier = Modifier
@@ -310,6 +354,12 @@ fun OsmMapScreen() {
                     entries = mainActivity.entries,
                     onEntryClick = { entry ->
                         mapView?.controller?.animateTo(entry.location)
+                    },
+                    onEditEntry = { newNote, entry ->
+                        mainActivity.updateEntryNote(newNote, entry)
+                    },
+                    onDeleteEntry = { entry ->
+                        mainActivity.deleteEntry(entry)
                     }
                 )
             }
@@ -330,9 +380,9 @@ fun OsmMapScreen() {
 
                 location?.let {
                     currentLocation = GeoPoint(it.latitude, it.longitude)
+                    mapView?.controller?.setCenter(currentLocation)
                 }
             } catch (e: Exception) {
-                // Handle location error
                 e.printStackTrace()
             }
         }
@@ -342,13 +392,17 @@ fun OsmMapScreen() {
 @Composable
 private fun EntriesList(
     entries: List<LocationEntry>,
-    onEntryClick: (LocationEntry) -> Unit
+    onEntryClick: (LocationEntry) -> Unit,
+    onEditEntry: (String, LocationEntry) -> Unit,
+    onDeleteEntry: (LocationEntry) -> Unit
 ) {
-    androidx.compose.foundation.lazy.LazyColumn {
+    LazyColumn {
         items(entries) { entry ->
             EntryItem(
                 entry = entry,
-                onClick = { onEntryClick(entry) }
+                onClick = { onEntryClick(entry) },
+                onEdit = { newNote -> onEditEntry(newNote, entry) },
+                onDelete = { onDeleteEntry(entry) }
             )
         }
     }
@@ -357,8 +411,13 @@ private fun EntriesList(
 @Composable
 private fun EntryItem(
     entry: LocationEntry,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onEdit: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editedNote by remember { mutableStateOf(entry.note) }
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -376,8 +435,7 @@ private fun EntryItem(
                     .height(120.dp),
                 contentScale = ContentScale.Crop
             )
-            
-            // Show note if present
+
             if (entry.note.isNotEmpty()) {
                 Text(
                     text = entry.note,
@@ -385,8 +443,7 @@ private fun EntryItem(
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
-            
-            // Show location details
+
             Text(
                 text = "Lat: ${entry.location.latitude.format(2)}\n" +
                        "Lon: ${entry.location.longitude.format(2)}",
@@ -400,25 +457,80 @@ private fun EntryItem(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = { showEditDialog = true },
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Text("Bearbeiten")
+                }
+                
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Löschen")
+                }
+            }
         }
+    }
+    
+    if (showEditDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Edit Note") },
+            text = {
+                TextField(
+                    value = editedNote,
+                    onValueChange = { editedNote = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Note") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onEdit(editedNote)
+                        showEditDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEditDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
-fun saveLocation(cl: GeoPoint?, activity: Context?) {
+fun saveLocation(cl: GeoPoint?, activity: Context?, type: String) {
     if (activity is MainActivity) {
         val input = EditText(activity).apply {
-            hint = "Enter a note (optional)"
+            hint = "Notiz hinzufügen"
         }
         
         AlertDialog.Builder(activity)
-            .setTitle("Save Location")
+            .setTitle("Ort speichern")
             .setView(input)
-            .setPositiveButton("Add picture and save") { _, _ ->
+            .setPositiveButton("Bild hinzufügen und speichern") { _, _ ->
                 activity.currentLocation = cl
                 activity.pendingNote = input.text.toString()
                 activity.openImagePicker()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Abbrechen", null)
             .show()
     }
 }
